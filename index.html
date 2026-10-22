@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jual Token Ee (E) — Base</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#0f172a; color:#e2e8f0; display:flex; justify-content:center; padding:24px; margin:0; }
+  .card { background:#1e293b; border-radius:16px; padding:28px; max-width:440px; width:100%; box-shadow:0 10px 30px rgba(0,0,0,.4); }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#94a3b8; font-size:13px; margin-bottom:20px; }
+  .row { background:#0f172a; border-radius:10px; padding:12px 14px; margin-bottom:12px; font-size:14px; }
+  .row .label { color:#94a3b8; font-size:12px; }
+  .row .val { margin-top:2px; word-break:break-all; }
+  button { width:100%; padding:14px; border:none; border-radius:10px; font-size:16px; font-weight:600; cursor:pointer; background:#2563eb; color:#fff; }
+  button:disabled { background:#334155; cursor:not-allowed; }
+  button.sell { background:#dc2626; }
+  .note { font-size:12px; color:#94a3b8; margin-top:16px; line-height:1.5; }
+  a { color:#60a5fa; }
+  .ok { color:#4ade80; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Jual Token "Ee" (E)</h1>
+  <div class="sub">Kontrak: 0xBd928D94...fF302 · Jaringan: Base</div>
+
+  <div id="status" class="row">
+    <div class="label">Status</div>
+    <div class="val" id="statusText">Belum connect</div>
+  </div>
+
+  <div class="row">
+    <div class="label">Wallet</div>
+    <div class="val" id="walletText">—</div>
+  </div>
+
+  <div class="row">
+    <div class="label">Saldo token Ee kamu</div>
+    <div class="val" id="balanceText">—</div>
+  </div>
+
+  <div class="row">
+    <div class="label">Estimasi ETH yang masuk (±)</div>
+    <div class="val" id="estimateText">—</div>
+  </div>
+
+  <button id="connectBtn" onclick="connect()">1. Connect MetaMask</button>
+  <br><br>
+  <button id="sellBtn" class="sell" onclick="sell()" disabled>2. Jual Semua Token</button>
+
+  <div class="note">
+    <b>Cara pakai:</b> pakai browser (PC) dengan ekstensi MetaMask, jaringan <b>Base</b>.
+    Connect → pastikan alamat yang muncul = wallet kamu (0xbc6a...CA494) → klik "Jual Semua".
+    Transaksi cuma ~$0.03 gas. Jangan share private key ke siapa pun.
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
+<script>
+const CONTRACT = "0xBd928D940ddE023a0d04308f1c5aaFef0e4fF302";
+const BASE_CHAIN_ID = "0x2105"; // 8453
+const ABI = [
+  "function sell(uint256 tokensToSell, address recipient, string comment, uint8 marketType, uint256 minPayoutSize, uint160 sqrtPriceLimitX96) returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+  "function symbol() view returns (string)"
+];
+
+let signer, provider, contract;
+
+function getProvider(){
+  // Deteksi SafePal, MetaMask, atau provider EIP-1193 lain
+  if (window.safePal) return window.safePal;
+  if (window.ethereum && window.ethereum.isSafePal) return window.ethereum;
+  if (window.ethereum) return window.ethereum;
+  return null;
+}
+
+function setStatus(t){ document.getElementById("statusText").innerText = t; }
+function $(id){ return document.getElementById(id); }
+
+async function connect(){
+  const p = getProvider();
+  if(!p){ setStatus("Wallet tidak terdeteksi. Buka lewat browser wallet (SafePal DApp / MetaMask)."); return; }
+  try {
+    await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: BASE_CHAIN_ID }] });
+  } catch(e) {
+    try {
+      await p.request({ method: "wallet_addEthereumChain", params: [{
+        chainId: BASE_CHAIN_ID, chainName: "Base", nativeCurrency:{name:"Ether",symbol:"ETH",decimals:18},
+        rpcUrls:["https://mainnet.base.org"], blockExplorerUrls:["https://basescan.org"]
+      }]});
+    } catch(e2){ setStatus("Gagal switch ke Base: " + (e2.message||"")); return; }
+  }
+  provider = new ethers.BrowserProvider(p);
+  signer = await provider.getSigner();
+  const addr = await signer.getAddress();
+  $("walletText").innerText = addr;
+  contract = new ethers.Contract(CONTRACT, ABI, signer);
+
+  setStatus("Terhubung ✓");
+  $("connectBtn").disabled = true;
+  $("sellBtn").disabled = false;
+  await refreshBalance();
+}
+
+async function refreshBalance(){
+  if(!contract) return;
+  const bal = await contract.balanceOf(await signer.getAddress());
+  const tokens = ethers.formatUnits(bal, 18);
+  $("balanceText").innerText = tokens + " Ee";
+  // estimasi kasar: total reserve 0.1729 ETH, share proporsional
+  const share = Number(tokens) / 123003287.93;
+  const est = 0.1729 * share;
+  $("estimateText").innerText = est.toFixed(6) + " ETH (±)";
+}
+
+async function sell(){
+  const bal = await contract.balanceOf(await signer.getAddress());
+  if(bal == 0n){ setStatus("Saldo 0, tidak ada yang dijual."); return; }
+  setStatus("Mengirim transaksi... (konfirmasi di MetaMask)");
+  $("sellBtn").disabled = true;
+  try {
+    const tx = await contract.sell(bal, await signer.getAddress(), "", 0, 0, 0);
+    setStatus("Terkirim! Menunggu konfirmasi...");
+    const rec = await tx.wait();
+    setStatus("BERHASIL ✓ Tx: " + rec.hash);
+    $("estimateText").innerText = "Selesai";
+  } catch(e){
+    setStatus("Gagal: " + (e.shortMessage || e.message));
+    $("sellBtn").disabled = false;
+  }
+}
+</script>
+</body>
+</html>
