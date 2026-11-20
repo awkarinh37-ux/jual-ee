@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FluidPerp — Deep Liquidity Perps</title>
+<style>
+:root{
+  --bg:#05070c; --panel:#0b1018; --line:#16202e;
+  --ink:#e8f1ff; --dim:#8899ad; --fluid:#3ee9ff; --fluid2:#1f8bff;
+  --up:#2ee6a8; --down:#ff5c7a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:0 22px}
+
+/* nav */
+nav{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(5,7,12,.85);backdrop-filter:blur(12px);z-index:20}
+nav .wrap{display:flex;align-items:center;gap:28px;height:64px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em;font-size:17px}
+.dot{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 32% 30%,var(--fluid),var(--fluid2) 70%);box-shadow:0 0 22px rgba(62,233,255,.55)}
+nav .links{display:flex;gap:22px;font-size:14px;color:var(--dim)}
+nav .links a:hover{color:var(--ink)}
+nav .cta{margin-left:auto;display:flex;gap:10px}
+
+/* buttons */
+.btn{padding:9px 16px;border-radius:9px;font-size:14px;font-weight:600;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.btn:hover{border-color:#2a3b52}
+.btn.solid{background:linear-gradient(135deg,var(--fluid),var(--fluid2));border:0;color:#001018}
+.btn.solid:hover{filter:brightness(1.1)}
+
+/* hero */
+header{padding:86px 0 64px;position:relative;overflow:hidden}
+header:before{content:"";position:absolute;inset:-40% 20% auto 20%;height:520px;
+  background:radial-gradient(closest-side,rgba(31,139,255,.22),transparent);filter:blur(20px);pointer-events:none}
+h1{font-size:clamp(36px,6vw,64px);line-height:1.02;letter-spacing:-.035em;margin:0 0 18px;max-width:15ch}
+h1 em{font-style:normal;background:linear-gradient(100deg,var(--fluid),var(--fluid2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--dim);font-size:17px;max-width:52ch;margin:0 0 28px}
+.heroBtns{display:flex;gap:12px;flex-wrap:wrap}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:56px 0}
+.stat{background:var(--panel);padding:22px 20px}
+.stat b{display:block;font-size:24px;letter-spacing:-.02em}
+.stat span{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.09em}
+
+/* cards */
+section{padding:56px 0}
+h2{font-size:clamp(24px,3.4vw,34px);letter-spacing:-.03em;margin:0 0 12px}
+.lead{color:var(--dim);margin:0 0 32px;max-width:60ch}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+.card h3{margin:0 0 8px;font-size:16px;letter-spacing:-.01em}
+.card p{margin:0;color:var(--dim);font-size:14px}
+.ico{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;margin-bottom:14px;
+  background:rgba(62,233,255,.1);border:1px solid rgba(62,233,255,.22);font-size:15px}
+
+/* trade panel */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.panel .head{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:1px;background:var(--line);font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+.panel .head div{background:#0a1119;padding:11px 16px}
+.row{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:1px;background:var(--line);font-size:14px}
+.row>div{background:var(--panel);padding:15px 16px;display:flex;align-items:center;gap:9px}
+.row .pair{font-weight:600}
+.up{color:var(--up)} .down{color:var(--down)}
+.pill{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+
+/* lm strip */
+.strip{display:flex;gap:14px;flex-wrap:wrap;margin-top:20px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;color:var(--dim)}
+.chip b{color:var(--ink)}
+
+/* steps */
+ol.steps{margin:0;padding-left:18px;color:var(--dim)}
+ol.steps li{margin:0 0 14px}
+ol.steps b{color:var(--ink)}
+
+/* cta */
+.ctaBox{background:linear-gradient(135deg,rgba(62,233,255,.09),rgba(31,139,255,.07));border:1px solid var(--line);border-radius:18px;padding:44px;text-align:center}
+.ctaBox h2{margin:0 0 10px}
+.ctaBox p{color:var(--dim);margin:0 auto 24px;max-width:46ch}
+
+footer{border-top:1px solid var(--line);padding:34px 0;color:var(--dim);font-size:13px}
+.fRow{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between}
+.fRow .links{display:flex;gap:18px}
+.fRow a:hover{color:var(--ink)}
+@media(max-width:760px){
+  nav .links{display:none}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .panel .head,.row{grid-template-columns:1.3fr 1fr 1fr}
+  .panel .head div:nth-child(4),.row>div:nth-child(4){display:none}
+}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="logo" href="#"><span class="dot"></span>FluidPerp</a>
+  <div class="links">
+    <a href="#markets">Markets</a><a href="#how">How it works</a><a href="#lm">Liquidity</a><a href="#docs">Docs</a>
+  </div>
+  <div class="cta"><button class="btn">Connect</button><button class="btn solid">Trade</button></div>
+</div></nav>
+
+<header><div class="wrap">
+  <h1>Perps that never run <em>dry</em>.</h1>
+  <p class="sub">FluidPerp routes every fill through one shared liquidity layer, so size does not slip and liquidations clear themselves. Up to 90% LTV on ETH and BTC, settled on-chain.</p>
+  <div class="heroBtns">
+    <button class="btn solid">Open a position</button>
+    <button class="btn">Read the mechanism</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>$428.6M</b><span>Open interest</span></div>
+    <div class="stat"><b>$1.9B</b><span>Volume 30d</span></div>
+    <div class="stat"><b>0.4 bps</b><span>Avg. slippage</span></div>
+    <div class="stat"><b>90%</b><span>Max LTV</span></div>
+  </div>
+</div></header>
+
+<section id="markets"><div class="wrap">
+  <h2>Markets</h2>
+  <p class="lead">Single-collateral markets, isolated by pair. Every market shares the same backstop and the same liquidation engine.</p>
+  <div class="panel">
+    <div class="head"><div>Pair</div><div>Mark</div><div>Funding</div><div>OI</div></div>
+    <div class="row"><div class="pair">ETH-PERP <span class="pill">90% LTV</span></div><div>$3,842.10</div><div class="up">+0.0041%</div><div>$168.2M</div></div>
+    <div class="row"><div class="pair">BTC-PERP <span class="pill">88% LTV</span></div><div>$96,410.00</div><div class="up">+0.0022%</div><div>$204.9M</div></div>
+    <div class="row"><div class="pair">wstETH-PERP <span class="pill">85% LTV</span></div><div>$4,488.60</div><div class="down">-0.0013%</div><div>$31.4M</div></div>
+    <div class="row"><div class="pair">hBTC-PERP <span class="pill">82% LTV</span></div><div>$96,180.00</div><div class="up">+0.0008%</div><div>$24.1M</div></div>
+  </div>
+</div></section>
+
+<section id="how"><div class="wrap">
+  <h2>How it works</h2>
+  <p class="lead">Three parts, one book. Collateral, debt and the AMM all sit in the same pool, which is why liquidation never needs an external buyer.</p>
+  <div class="grid">
+    <div class="card"><div class="ico">◆</div><h3>Shared liquidity</h3><p>Lenders and traders quote against the same depth. Borrowing demand lifts the rate instead of draining the book.</p></div>
+    <div class="card"><div class="ico">⚡</div><h3>Self-clearing liquidations</h3><p>When a position breaches LTV, the engine unwinds it into the pool it already borrows from. No keeper race, no discount auction.</p></div>
+    <div class="card"><div class="ico">◈</div><h3>Isolated downside</h3><p>Each pair carries its own debt ceiling and oracle set, so a single bad market cannot drag the rest of the protocol.</p></div>
+  </div>
+</div></section>
+
+<section id="lm"><div class="wrap">
+  <h2>Liquidity</h2>
+  <p class="lead">Supply stables or blue-chip collateral and earn the borrow side of the book. Rates are set by utilisation, paid per second.</p>
+  <div class="strip">
+    <div class="chip">USDC <b>13.2% APY</b></div>
+    <div class="chip">USDe <b>11.8% APY</b></div>
+    <div class="chip">ETH <b>4.6% APY</b></div>
+    <div class="chip">BTC <b>3.1% APY</b></div>
+  </div>
+  <div class="grid" style="margin-top:26px">
+    <div class="card"><h3>No lockups</h3><p>Withdraw whenever utilisation allows — no epoch queue, no vesting.</p></div>
+    <div class="card"><h3>Backstop first</h3><p>LPs are senior to trader PnL on the same pool, with a reserve funded from fees.</p></div>
+    <div class="card"><h3>On-chain rates</h3><p>Every rate change is a function of utilisation, verifiable in the contract.</p></div>
+  </div>
+</div></section>
+
+<section id="docs"><div class="wrap">
+  <h2>Start in four steps</h2>
+  <ol class="steps">
+    <li><b>Connect</b> a wallet on the supported chain.</li>
+    <li><b>Deposit</b> collateral — ETH, wstETH, hBTC or stables.</li>
+    <li><b>Choose leverage</b> up to the market LTV, then open the position.</li>
+    <li><b>Watch health</b> in the position panel; top up or close any time.</li>
+  </ol>
+</div></section>
+
+<section><div class="wrap">
+  <div class="ctaBox">
+    <h2>Ship size, not slippage.</h2>
+    <p>FluidPerp is in testnet. Markets open to the public on launch day.</p>
+    <button class="btn solid">Join the waitlist</button>
+  </div>
+</div></section>
+
+<footer><div class="wrap fRow">
+  <div>© 2026 FluidPerp — deep liquidity perps.</div>
+  <div class="links"><a href="#markets">Markets</a><a href="#docs">Docs</a><a href="#">Terms</a><a href="#">X</a></div>
+</div></footer>
+
+</body>
+</html>
