@@ -1,0 +1,125 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>C1 — submission fields</title>
+<style>
+:root{--bg:#0d1117;--fg:#e6edf3;--line:#30363d;--acc:#2f81f7}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,Segoe UI,Roboto,sans-serif}
+header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:12px 18px;display:flex;gap:10px;align-items:center}
+header h1{font-size:14px;margin:0;color:#8b949e;flex:1}
+main{max-width:900px;margin:0 auto;padding:18px}
+.field{background:#161b22;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:16px}
+.hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+label{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--acc);font-weight:700}
+.btn{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 11px;font-size:12.5px;cursor:pointer}
+textarea{width:100%;background:#0d1117;color:#c9d1d9;border:1px solid var(--line);border-radius:8px;padding:10px;font:13px/1.55 ui-monospace,monospace;resize:vertical}
+.sev{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.pill{background:#161b22;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px}
+.pill b{color:#3fb950}
+.toast{position:fixed;bottom:20px;left:50%;transform:translate(-50%,80px);background:#238636;padding:9px 15px;border-radius:8px;transition:.25s;opacity:0}
+.toast.on{transform:translate(-50%,0);opacity:1}
+</style></head><body>
+<header><h1>C-1 · field siap tempel ke form Cantina</h1><button class="btn" id="all">Copy semua</button></header>
+<main>
+<div class="sev"><span class="pill">Severity <b>Low</b></span><span class="pill">Likelihood <b>High</b></span><span class="pill">Impact <b>Low</b></span></div>
+<section class="field"><div class="hd"><label>Finding Title</label><button class="btn" data-c="0">Copy</button></div><textarea readonly rows="8">Anyone can bypass an IKR enter gate&#x27;s whitelist by deploying an adapter from the registered factory and self-admitting</textarea></section><section class="field"><div class="hd"><label>Finding Description</label><button class="btn" data-c="1">Copy</button></div><textarea readonly rows="8">## Summary
+
+`IKRCompatibleEnterGate.admit` authenticates the *factory that deployed the caller*, never the caller itself, the vault behind it, or the admitted user. Because `MidnightAdapterFactory.createMidnightAdapter` is permissionless and the adapter constructor does not validate `parentVault`, any account can deploy a stub vault plus an adapter from the registered factory, admit itself, and take credit in a gated market that it is not whitelisted for. The whitelist is therefore advisory rather than enforced.
+
+**Severity:** Low — **Likelihood:** High — **Impact:** Low
+
+## Finding Description
+
+Midnight calls `canIncreaseCredit(buyer)` on every credit-increasing buy (`lib/midnight/src/Midnight.sol:384-387`). For gated markets the gate is expected to be the entry boundary. `IKRCompatibleEnterGate` implements that boundary as follows (`src/adapters/midnight/gates/IKRCompatibleEnterGate.sol:36-45`):
+
+```solidity
+function admit(address user, address adapterFactory) external {
+    require(admitEnabled, AdmitDisabled());
+    require(
+        admitterFactory[adapterFactory] &amp;&amp; IMidnightAdapterFactory(adapterFactory).isCreated(msg.sender),
+        Unauthorized()
+    );
+    admitted = user;
+    emit Admit(msg.sender, user, adapterFactory);
+}
+```
+
+The two checks are, in order: (1) the *factory argument* is registered by the role setter, and (2) the *caller* was deployed by that factory. Nothing binds the caller to a known vault, to a real vault at all, or `user` to a share balance. `admitted` is transient and is consumed by `canIncreaseCredit` for the caller only.
+
+The gate&#x27;s own NatSpec states the invariant it believes it has: the caller &quot;must be debt-free, check the buyer holds its vault&#x27;s shares&quot;. Neither property is verified on-chain.
+
+`MidnightAdapterFactory.createMidnightAdapter` is permissionless (`src/adapters/midnight/MidnightAdapterFactory.sol:26-37`) and `MidnightAdapter`&#x27;s constructor only calls `asset()` and `setIsAuthorized()` on its constructor arguments, so `parentVault` may be a four-line stub.
+
+**Propagation path** — the attacker never touches the real vault, the curator, or any allow-list:
+
+1. deploy `StubVault` exposing `asset()`, returning the market&#x27;s loan token;
+2. `factory.createMidnightAdapter(asset, stubVault, midnight, ...)` — succeeds for anyone;
+3. on the freshly deployed adapter, call `admit(attacker, address(factory))` — both checks pass: the factory is registered and it did deploy the adapter;
+4. call `Midnight.take(offer, ...)` as the taker. Midnight&#x27;s enter gate calls `canIncreaseCredit(attacker)`, which returns true because `admitted == attacker` and `msg.sender == adapter`;
+5. `onBuy` runs on the fake adapter; `parentVault` is dereferenced only for event/reporting paths, which the stub satisfies.
+
+Guarantee broken: **the gate no longer restricts who may hold credit in a gated market**. Buyers must still pay the offer price; the bypass is about entry, not liquidity.
+
+`admitEnabled == false` still blocks the fake adapter, so the gate is not dead — only admission is unbound (see PoC control `testPocDisabledGateStillRejects`).</textarea></section><section class="field"><div class="hd"><label>Impact Explanation</label><button class="btn" data-c="2">Copy</button></div><textarea readonly rows="8">Low. The attacker gains the same credit position a genuinely whitelisted buyer would get, at the same price, and the position behaves identically afterwards (redeem, sell, transfer) because Midnight only knows the buyer address. Nothing breaks for existing holders, pricing is untouched, and no exit is blocked.
+
+Why not Medium: no funds are lost, no accounting is corrupted, and no DoS is possible. Medium becomes defensible only where the gate is the compliance boundary of a permissioned pool rather than a soft preference — then &quot;not whitelisted&quot; and &quot;cannot enter&quot; stop being equivalent, which is exactly the security guarantee the gate advertises.
+
+Why not High: the attacker still has to fund the purchase; entry alone does not move value.</textarea></section><section class="field"><div class="hd"><label>Likelihood Explanation</label><button class="btn" data-c="3">Copy</button></div><textarea readonly rows="8">High, and fully deterministic. There is no privileged role, no waiting period and no capital lock-up beyond the price itself. The setup is one adapter deployment, reused forever: after it exists, the exploit is a single `take` per offer in every market using that gate, repeatable by any EOA, for as long as admission is enabled. Nothing needs to be discovered or timed, and the deployed adapter is never touched again after `admit`, so its state does not have to survive.</textarea></section><section class="field"><div class="hd"><label>Proof of Concept</label><button class="btn" data-c="4">Copy</button></div><textarea readonly rows="8">Secret gist: https://gist.github.com/awkarinh37-ux/48e480866150936cd4d3708311f5f975
+
+File: `test/PocGateAdmission.t.sol`, run in the repository harness against the real `Midnight` and the real `VaultV2`:
+
+```
+$ forge test --match-contract PocGateAdmission --match-test testPoc -vv
+
+Ran 2 tests for test/PocGateAdmission.t.sol:PocGateAdmission
+[PASS] testPocDisabledGateStillRejects() (gas: 28132394)
+[PASS] testPocFakeAdapterAdmitsAnyone() (gas: 28407576)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 53.11ms (28.87ms CPU time)
+```
+
+The exploit asserts, in order: `canIncreaseCredit(attacker)` is false; the take reverts `BuyerGatedFromIncreasingCredit` (negative control — the gate really is enforcing something); a stub vault + adapter is deployed from the registered factory; the fake adapter calls `admit(attacker, factory)` and `canIncreaseCredit(attacker)` flips to true; the same take succeeds and the attacker holds `0.5e18` credit.
+
+PoC sketch:
+
+```solidity
+function testPocFakeAdapterAdmitsAnyone() public {
+    (Offer memory offer, bytes32 marketId) = _gatedOffer();     // gate on, attacker not allowed
+    assertFalse(gate.canIncreaseCredit(attacker));               // control
+    vm.expectRevert(Midnight.BuyerGatedFromIncreasingCredit.selector);
+    vm.prank(attacker); midnight.take(offer, &quot;&quot;, units, &quot;&quot;);
+
+    StubVault stub = new StubVault(address(loanToken));
+    MidnightAdapter fake = factory.createMidnightAdapter(
+        address(loanToken), address(stub), address(midnight), ...
+    );
+    fake.admit(attacker, address(factory));                      // permissionless
+    assertTrue(gate.canIncreaseCredit(attacker));                 // whitelist bypassed
+
+    vm.prank(attacker); midnight.take(offer, &quot;&quot;, units, &quot;&quot;);      // succeeds
+    assertEq(midnight.credit(marketId, attacker), units);
+}
+```</textarea></section><section class="field"><div class="hd"><label>Recommendation</label><button class="btn" data-c="5">Copy</button></div><textarea readonly rows="8">Bind admission to something the gate verifies itself instead of trusting the caller. Minimal change:
+
+```solidity
+function admit(address user, address adapterFactory) external {
+    require(admitEnabled, AdmitDisabled());
+    require(
+        admitterFactory[adapterFactory] &amp;&amp; IMidnightAdapterFactory(adapterFactory).isCreated(msg.sender),
+        Unauthorized()
+    );
+    // caller must be a real adapter over a vault the gate knows, and the user must hold its shares
+    address vault = IMidnightAdapter(msg.sender).parentVault();
+    require(allowedVault[vault], Unauthorized());
+    require(IVault(vault).balanceOf(user) &gt; 0, Unauthorized());
+
+    admitted = user;
+    emit Admit(msg.sender, user, adapterFactory);
+}
+```
+
+`allowedVault` would be populated by the existing `roleSetter` next to `admitterFactory`. This restores the documented &quot;debt-free, holds shares&quot; semantics and closes the stub-adapter path; registering `(vault, factory)` pairs instead of bare factories is an equivalent fix.</textarea></section>
+</main><div class="toast" id="t"></div>
+<script>
+const R={"0": "Anyone can bypass an IKR enter gate's whitelist by deploying an adapter from the registered factory and self-admitting", "1": "## Summary\n\n`IKRCompatibleEnterGate.admit` authenticates the *factory that deployed the caller*, never the caller itself, the vault behind it, or the admitted user. Because `MidnightAdapterFactory.createMidnightAdapter` is permissionless and the adapter constructor does not validate `parentVault`, any account can deploy a stub vault plus an adapter from the registered factory, admit itself, and take credit in a gated market that it is not whitelisted for. The whitelist is therefore advisory rather than enforced.\n\n**Severity:** Low \u2014 **Likelihood:** High \u2014 **Impact:** Low\n\n## Finding Description\n\nMidnight calls `canIncreaseCredit(buyer)` on every credit-increasing buy (`lib/midnight/src/Midnight.sol:384-387`). For gated markets the gate is expected to be the entry boundary. `IKRCompatibleEnterGate` implements that boundary as follows (`src/adapters/midnight/gates/IKRCompatibleEnterGate.sol:36-45`):\n\n```solidity\nfunction admit(address user, address adapterFactory) external {\n    require(admitEnabled, AdmitDisabled());\n    require(\n        admitterFactory[adapterFactory] && IMidnightAdapterFactory(adapterFactory).isCreated(msg.sender),\n        Unauthorized()\n    );\n    admitted = user;\n    emit Admit(msg.sender, user, adapterFactory);\n}\n```\n\nThe two checks are, in order: (1) the *factory argument* is registered by the role setter, and (2) the *caller* was deployed by that factory. Nothing binds the caller to a known vault, to a real vault at all, or `user` to a share balance. `admitted` is transient and is consumed by `canIncreaseCredit` for the caller only.\n\nThe gate's own NatSpec states the invariant it believes it has: the caller \"must be debt-free, check the buyer holds its vault's shares\". Neither property is verified on-chain.\n\n`MidnightAdapterFactory.createMidnightAdapter` is permissionless (`src/adapters/midnight/MidnightAdapterFactory.sol:26-37`) and `MidnightAdapter`'s constructor only calls `asset()` and `setIsAuthorized()` on its constructor arguments, so `parentVault` may be a four-line stub.\n\n**Propagation path** \u2014 the attacker never touches the real vault, the curator, or any allow-list:\n\n1. deploy `StubVault` exposing `asset()`, returning the market's loan token;\n2. `factory.createMidnightAdapter(asset, stubVault, midnight, ...)` \u2014 succeeds for anyone;\n3. on the freshly deployed adapter, call `admit(attacker, address(factory))` \u2014 both checks pass: the factory is registered and it did deploy the adapter;\n4. call `Midnight.take(offer, ...)` as the taker. Midnight's enter gate calls `canIncreaseCredit(attacker)`, which returns true because `admitted == attacker` and `msg.sender == adapter`;\n5. `onBuy` runs on the fake adapter; `parentVault` is dereferenced only for event/reporting paths, which the stub satisfies.\n\nGuarantee broken: **the gate no longer restricts who may hold credit in a gated market**. Buyers must still pay the offer price; the bypass is about entry, not liquidity.\n\n`admitEnabled == false` still blocks the fake adapter, so the gate is not dead \u2014 only admission is unbound (see PoC control `testPocDisabledGateStillRejects`).", "2": "Low. The attacker gains the same credit position a genuinely whitelisted buyer would get, at the same price, and the position behaves identically afterwards (redeem, sell, transfer) because Midnight only knows the buyer address. Nothing breaks for existing holders, pricing is untouched, and no exit is blocked.\n\nWhy not Medium: no funds are lost, no accounting is corrupted, and no DoS is possible. Medium becomes defensible only where the gate is the compliance boundary of a permissioned pool rather than a soft preference \u2014 then \"not whitelisted\" and \"cannot enter\" stop being equivalent, which is exactly the security guarantee the gate advertises.\n\nWhy not High: the attacker still has to fund the purchase; entry alone does not move value.", "3": "High, and fully deterministic. There is no privileged role, no waiting period and no capital lock-up beyond the price itself. The setup is one adapter deployment, reused forever: after it exists, the exploit is a single `take` per offer in every market using that gate, repeatable by any EOA, for as long as admission is enabled. Nothing needs to be discovered or timed, and the deployed adapter is never touched again after `admit`, so its state does not have to survive.", "4": "Secret gist: https://gist.github.com/awkarinh37-ux/48e480866150936cd4d3708311f5f975\n\nFile: `test/PocGateAdmission.t.sol`, run in the repository harness against the real `Midnight` and the real `VaultV2`:\n\n```\n$ forge test --match-contract PocGateAdmission --match-test testPoc -vv\n\nRan 2 tests for test/PocGateAdmission.t.sol:PocGateAdmission\n[PASS] testPocDisabledGateStillRejects() (gas: 28132394)\n[PASS] testPocFakeAdapterAdmitsAnyone() (gas: 28407576)\nSuite result: ok. 2 passed; 0 failed; 0 skipped; finished in 53.11ms (28.87ms CPU time)\n```\n\nThe exploit asserts, in order: `canIncreaseCredit(attacker)` is false; the take reverts `BuyerGatedFromIncreasingCredit` (negative control \u2014 the gate really is enforcing something); a stub vault + adapter is deployed from the registered factory; the fake adapter calls `admit(attacker, factory)` and `canIncreaseCredit(attacker)` flips to true; the same take succeeds and the attacker holds `0.5e18` credit.\n\nPoC sketch:\n\n```solidity\nfunction testPocFakeAdapterAdmitsAnyone() public {\n    (Offer memory offer, bytes32 marketId) = _gatedOffer();     // gate on, attacker not allowed\n    assertFalse(gate.canIncreaseCredit(attacker));               // control\n    vm.expectRevert(Midnight.BuyerGatedFromIncreasingCredit.selector);\n    vm.prank(attacker); midnight.take(offer, \"\", units, \"\");\n\n    StubVault stub = new StubVault(address(loanToken));\n    MidnightAdapter fake = factory.createMidnightAdapter(\n        address(loanToken), address(stub), address(midnight), ...\n    );\n    fake.admit(attacker, address(factory));                      // permissionless\n    assertTrue(gate.canIncreaseCredit(attacker));                 // whitelist bypassed\n\n    vm.prank(attacker); midnight.take(offer, \"\", units, \"\");      // succeeds\n    assertEq(midnight.credit(marketId, attacker), units);\n}\n```", "5": "Bind admission to something the gate verifies itself instead of trusting the caller. Minimal change:\n\n```solidity\nfunction admit(address user, address adapterFactory) external {\n    require(admitEnabled, AdmitDisabled());\n    require(\n        admitterFactory[adapterFactory] && IMidnightAdapterFactory(adapterFactory).isCreated(msg.sender),\n        Unauthorized()\n    );\n    // caller must be a real adapter over a vault the gate knows, and the user must hold its shares\n    address vault = IMidnightAdapter(msg.sender).parentVault();\n    require(allowedVault[vault], Unauthorized());\n    require(IVault(vault).balanceOf(user) > 0, Unauthorized());\n\n    admitted = user;\n    emit Admit(msg.sender, user, adapterFactory);\n}\n```\n\n`allowedVault` would be populated by the existing `roleSetter` next to `admitterFactory`. This restores the documented \"debt-free, holds shares\" semantics and closes the stub-adapter path; registering `(vault, factory)` pairs instead of bare factories is an equivalent fix."};
+const tnote=(m)=>{const e=document.getElementById('t');e.textContent=m;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),1300)}
+async function cp(v){try{await navigator.clipboard.writeText(v)}catch(e){const a=document.createElement('textarea');a.value=v;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove()}tnote('Tersalin')}
+document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>cp(R[b.dataset.c]));
+document.getElementById('all').onclick=()=>cp(Object.values(R).join('\n\n'));
+</script></body></html>
